@@ -1,0 +1,18 @@
+# Example candidate configuration - plain VyOS `set` commands, applied
+# in order via `configure` + this file's lines + `commit`.
+#
+# This is a placeholder demonstrating the pattern (allow SSH inbound,
+# drop everything else by default) - replace with whatever configuration
+# you actually want to test. Syntax below matches VyOS 1.4's firewall
+# model (ipv4/ipv6 split, rule sets referenced by name) - verify against
+# real 1.4 docs/behavior if you're not already familiar with it, syntax
+# has changed across VyOS versions.
+
+set interfaces ethernet eth0 address 'dhcp'
+
+set firewall ipv4 name WAN-IN default-action 'drop'
+set firewall ipv4 name WAN-IN rule 10 action 'accept'
+set firewall ipv4 name WAN-IN rule 10 protocol 'tcp'
+set firewall ipv4 name WAN-IN rule 10 destination port '22'
+set firewall ipv4 name WAN-IN rule 10 state established 'enable'
+set firewall ipv4 name WAN-IN rule 10 state related 'enable'

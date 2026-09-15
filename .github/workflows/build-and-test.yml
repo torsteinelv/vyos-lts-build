@@ -1,0 +1,110 @@
+name: Build and test VyOS LTS
+
+# Manual trigger only - a full VyOS ISO build is heavy (compiles a kernel,
+# FRR, etc.) and version bumps should be a deliberate decision, not
+# something that happens automatically on every push. See README.md.
+on:
+  workflow_dispatch:
+
+env:
+  # Pinned LTS branch. Bumping this to a new LTS (e.g. circinus/1.5 once
+  # released) is a deliberate decision - update it here on purpose, don't
+  # automate it.
+  VYOS_BRANCH: sagitta
+  ARCHITECTURE: amd64
+  BUILD_BY: vyos-lts-build@github.com
+  BUILD_TYPE: release
+  VERSION: 1.4-lts-build
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Official, VyOS-published image matching the pinned LTS branch - see
+    # https://hub.docker.com/r/vyos/vyos-build/tags. Avoids rebuilding the
+    # (very heavy) build environment from Dockerfile on every run.
+    container:
+      image: vyos/vyos-build:sagitta
+      options: --workdir /vyos --privileged
+    steps:
+      - name: Clone vyos-build (pinned branch)
+        run: git clone -b $VYOS_BRANCH --single-branch https://github.com/vyos/vyos-build
+
+      - name: Build ISO
+        working-directory: ./vyos-build
+        run: |
+          sudo make clean
+          sudo ./build-vyos-image iso \
+            --architecture $ARCHITECTURE \
+            --build-by "$BUILD_BY" \
+            --build-type $BUILD_TYPE \
+            --version $VERSION-$(date +%Y%m%d%H%M)
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vyos-iso
+          path: vyos-build/build/vyos-*.iso
+          retention-days: 14
+
+  smoketest:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check KVM availability
+        run: |
+          if [ ! -e /dev/kvm ]; then
+            echo "::error::/dev/kvm not present - this job needs a KVM-capable runner. GitHub-hosted ubuntu-latest has this by default; a self-hosted runner needs nested virtualization enabled explicitly."
+            exit 1
+          fi
+          ls -la /dev/kvm
+
+      - name: Download ISO artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vyos-iso
+          path: iso
+
+      - name: Clone vyos-build for its own official test scripts
+        run: git clone -b $VYOS_BRANCH --single-branch --depth 1 https://github.com/vyos/vyos-build vyos-build-scripts
+
+      - name: Install QEMU + pexpect
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils ovmf python3-pexpect
+
+      - name: Run VyOS's own official install/smoketest suite
+        run: |
+          iso=$(find iso -name '*.iso' | head -n1)
+          sudo python3 vyos-build-scripts/scripts/check-qemu-install "$iso" --silent
+
+  candidate-config-test:
+    needs: build
+    runs-on: ubuntu-latest
+    # Experimental - see README.md "Pipeline" section. Doesn't block the
+    # rest of the pipeline while this is still being proven out.
+    continue-on-error: true
+    steps:
+      - name: Check KVM availability
+        run: |
+          if [ ! -e /dev/kvm ]; then
+            echo "::error::/dev/kvm not present."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Download ISO artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vyos-iso
+          path: iso
+
+      - name: Install QEMU + pexpect
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils ovmf python3-pexpect
+
+      - name: Run candidate configuration test
+        run: |
+          iso=$(find iso -name '*.iso' | head -n1)
+          sudo python3 scripts/test-candidate-config.py "$iso" config/candidate.txt
