@@ -95,7 +95,11 @@ def main():
     # command, and fails with "Configuration path: [configuration] is not
     # valid" - confirmed via a real CI failure. "run" dispatches it as an
     # operational-mode command from within configure mode instead.
-    child.sendline("run show configuration commands")
+    # "| no-more" disables the pager - without it, output long enough to
+    # fill the terminal leaves the session stuck at a "---More---"-style
+    # ":" prompt instead of returning to CONFIG_PROMPT, which pexpect then
+    # times out waiting for - confirmed via a real CI timeout.
+    child.sendline("run show configuration commands | no-more")
     child.expect(CONFIG_PROMPT)
     committed = child.before
     check_no_errors(committed, "show configuration commands")
