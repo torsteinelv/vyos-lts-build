@@ -188,3 +188,4 @@ private repos) is free here. In use:
 - A CI runner with KVM available (`smoketest`, `candidate-config-test`).
 - Nothing else - no VyOS subscription, no external credentials for the
   `build` job.
+
