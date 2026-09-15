@@ -89,9 +89,16 @@ def main():
         sys.exit(1)
     check_no_errors(child.before, "commit")
 
-    child.sendline("show configuration commands")
+    # Still in configure mode here - "show configuration commands" without
+    # "run" is parsed as a candidate-config path lookup (there's no top
+    # -level node called "configuration"), not the operational show
+    # command, and fails with "Configuration path: [configuration] is not
+    # valid" - confirmed via a real CI failure. "run" dispatches it as an
+    # operational-mode command from within configure mode instead.
+    child.sendline("run show configuration commands")
     child.expect(CONFIG_PROMPT)
     committed = child.before
+    check_no_errors(committed, "show configuration commands")
     print(committed)
 
     # "commit succeeded" only means VyOS accepted the syntax and applied
