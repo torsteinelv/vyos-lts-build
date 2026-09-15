@@ -16,7 +16,9 @@ official scripts/check-qemu-install (used in the smoketest job) is what
 validates the actual installed system.
 """
 import argparse
+import re
 import sys
+import time
 
 import pexpect
 
@@ -42,6 +44,34 @@ def check_no_errors(output, context):
             print(f"CANDIDATE CONFIG: error detected after {context} (matched {pattern!r})", file=sys.stderr)
             print(output, file=sys.stderr)
             sys.exit(1)
+
+
+def verify_eth0_runtime_address(child, attempts=6, delay=5):
+    # "commit succeeded" and the line appearing in "show configuration
+    # commands" only prove the config tree accepted it - not that the
+    # interface actually came up with a working address at runtime.
+    # QEMU's usermode networking (-netdev user) has a built-in DHCP
+    # server, so a genuinely working DHCP client should show a real
+    # leased IPv4 address here - retried a few times since DHCP
+    # negotiation timing can vary and a single immediate check could
+    # flake on a system that's actually fine, just not done negotiating
+    # yet.
+    for attempt in range(1, attempts + 1):
+        child.sendline("run show interfaces ethernet eth0 | no-more")
+        child.expect(CONFIG_PROMPT, timeout=30)
+        output = child.before
+        check_no_errors(output, "show interfaces ethernet eth0")
+        if re.search(r"inet \d+\.\d+\.\d+\.\d+/\d+", output):
+            return
+        print(f"CANDIDATE CONFIG: no IPv4 address on eth0 yet (attempt {attempt}/{attempts}), retrying...")
+        time.sleep(delay)
+
+    print("CANDIDATE CONFIG: eth0 never got an IPv4 address in its runtime state - "
+          "the config was accepted, but DHCP apparently never actually "
+          "completed (config-tree acceptance alone doesn't prove this)",
+          file=sys.stderr)
+    print(output, file=sys.stderr)
+    sys.exit(1)
 
 
 def main():
@@ -118,6 +148,11 @@ def main():
         for cmd in missing:
             print(f"  MISSING: {cmd}", file=sys.stderr)
         sys.exit(1)
+
+    # Runtime verification (#18) - proves eth0 actually came up with a
+    # real address, not just that its config was accepted into the tree.
+    verify_eth0_runtime_address(child)
+    print("CANDIDATE CONFIG: eth0 runtime state verified (real IPv4 address present)")
 
     child.sendline("exit")
     child.close(force=True)
