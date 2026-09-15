@@ -141,7 +141,19 @@ def main():
     # dedupe, or silently drop a line under some edge case). Assert every
     # applied command is actually present in the post-commit config, not
     # just that commit didn't error.
-    missing = [cmd for cmd in applied_commands if cmd not in committed]
+    #
+    # Quotes are stripped before comparing on both sides - confirmed via a
+    # real CI failure that VyOS's own "show configuration commands" drops
+    # quotes around tag-node identifiers and multi-value leaf values (e.g.
+    # "subnet 192.168.100.0/24" instead of "subnet '192.168.100.0/24'"),
+    # while single-value leaves keep theirs - an inconsistency in VyOS's
+    # own output, not something we typed wrong. Comparing without quotes
+    # avoids false "missing" failures over formatting differences that
+    # don't reflect any actual difference in the committed config.
+    def without_quotes(s):
+        return s.replace("'", "")
+
+    missing = [cmd for cmd in applied_commands if without_quotes(cmd) not in without_quotes(committed)]
     if missing:
         print("CANDIDATE CONFIG: commit succeeded but expected line(s) missing from "
               "'show configuration commands':", file=sys.stderr)
