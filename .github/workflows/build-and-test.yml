@@ -37,6 +37,19 @@ jobs:
       - name: Clone vyos-build (pinned branch)
         run: git clone -b $VYOS_BRANCH --single-branch https://github.com/vyos/vyos-build
 
+      - name: Patch data/defaults.toml (upstream branch rename not fully propagated)
+        # data/defaults.toml still hardcodes vyos_branch = "sagitta" on the
+        # sagitta-public-unmaintained branch itself - the build script uses
+        # this value to check out component repos (e.g. vyos-1x), which
+        # were ALSO renamed to "-public-unmaintained". Confirmed via a real
+        # failed run: "Could not retrieve vyos-1x from branch sagitta".
+        # This is an upstream inconsistency (branch renamed, this file
+        # wasn't updated to match), not something wrong on our end.
+        working-directory: ./vyos-build
+        run: |
+          sed -i "s/^vyos_branch = .*/vyos_branch = \"$VYOS_BRANCH\"/" data/defaults.toml
+          grep vyos_branch data/defaults.toml
+
       - name: Build ISO
         working-directory: ./vyos-build
         run: |
