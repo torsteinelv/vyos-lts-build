@@ -1,0 +1,68 @@
+name: Check for new upstream commit
+
+# Periodically checks whether vyos/vyos-build's "rolling" branch has moved
+# past VYOS_SOURCE_SHA in build-and-test.yml, and opens a PR bumping it if
+# so. Never auto-merges - version bumps stay a deliberate, reviewed
+# decision (see README "Versioning strategy"). The PR itself still has to
+# pass build + smoketest + candidate-config-test like any other PR before
+# it can be merged, since it touches build-and-test.yml.
+on:
+  schedule:
+    - cron: '0 6 * * *' # daily, 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Check for a new upstream commit
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current_sha=$(grep -oP '(?<=VYOS_SOURCE_SHA: )[0-9a-f]{40}' .github/workflows/build-and-test.yml)
+          latest_sha=$(gh api repos/vyos/vyos-build/commits/rolling --jq '.sha')
+          echo "current_sha=$current_sha" >> "$GITHUB_OUTPUT"
+          echo "latest_sha=$latest_sha" >> "$GITHUB_OUTPUT"
+          if [ "$current_sha" = "$latest_sha" ]; then
+            echo "up_to_date=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "up_to_date=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open a PR bumping VYOS_SOURCE_SHA
+        if: steps.check.outputs.up_to_date == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_SHA: ${{ steps.check.outputs.current_sha }}
+          LATEST_SHA: ${{ steps.check.outputs.latest_sha }}
+        run: |
+          branch="upstream-bump-$(echo "$LATEST_SHA" | cut -c1-8)"
+
+          # Don't open a duplicate PR if one's already open for this exact commit
+          if gh pr list --state open --json headRefName --jq '.[].headRefName' | grep -qx "$branch"; then
+            echo "PR for $LATEST_SHA already open, nothing to do."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          sed -i "s/VYOS_SOURCE_SHA: ${CURRENT_SHA}/VYOS_SOURCE_SHA: ${LATEST_SHA}/" .github/workflows/build-and-test.yml
+          git add .github/workflows/build-and-test.yml
+          git commit -m "Bump VYOS_SOURCE_SHA to $(echo "$LATEST_SHA" | cut -c1-8) (new upstream rolling commit)"
+          git push -u origin "$branch"
+
+          gh pr create \
+            --title "Bump pinned VyOS commit to $(echo "$LATEST_SHA" | cut -c1-8)" \
+            --body "New commit detected on vyos/vyos-build's \`rolling\` branch: https://github.com/vyos/vyos-build/commit/${LATEST_SHA}
+
+          Previous pinned commit: \`${CURRENT_SHA}\`
+
+          **Not auto-merged** - review the upstream diff, then merge only once build + smoketest + candidate-config-test all pass (this PR triggers those automatically, same as every other PR here)."
