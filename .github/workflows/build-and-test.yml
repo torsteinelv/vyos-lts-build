@@ -1,4 +1,4 @@
-name: Build and test VyOS LTS
+name: Build and test VyOS
 
 # Manual trigger only - a full VyOS ISO build is heavy (compiles a kernel,
 # FRR, etc.) and version bumps should be a deliberate decision, not
@@ -7,48 +7,46 @@ on:
   workflow_dispatch:
 
 env:
-  # Pinned LTS branch. As of 2026-09-15, VyOS has renamed this branch to
-  # "sagitta-public-unmaintained" upstream (confirmed via the GitHub
-  # branches API) - the plain "sagitta" branch no longer exists, only the
-  # Docker Hub image tag "sagitta" is kept as a legacy alias. The
-  # "-public-unmaintained" suffix means VyOS itself is no longer actively
-  # backporting fixes to the free/public branch (paying customers get
-  # continued support elsewhere) - which is exactly why building and
-  # testing this yourself, rather than trusting an upstream that may not
-  # be maintaining it, is the point of this repo.
-  # Bumping this to a new LTS is a deliberate decision - update it here
-  # on purpose, don't automate it.
-  VYOS_BRANCH: sagitta-public-unmaintained
+  # STRATEGY: pin "rolling" at a specific commit SHA rather than build the
+  # frozen "sagitta-public-unmaintained" LTS branch. Confirmed via a real
+  # failed CI run that the LTS branch's package repository
+  # (dev.packages.vyos.net/repositories/sagitta) does not resolve at all
+  # ("Could not resolve 'dev.packages.vyos.net'") - it's not just stale,
+  # it's unreachable. "rolling" uses live, working package mirrors.
+  # Pinning a specific commit (rather than the branch head) is what makes
+  # this reproducible - "rolling" moves constantly, this SHA doesn't.
+  # Bumping VYOS_SOURCE_SHA is a deliberate decision - update it here on
+  # purpose after reviewing what changed, don't automate it. See README.md
+  # "Versioning strategy".
+  VYOS_SOURCE_SHA: 22dfa15927f2bd01336ab2c0154800f061b0f2e8
+  # Pinned by digest, not just tag - the "rolling" tag itself is mutable
+  # and gets overwritten regularly.
+  VYOS_BUILD_IMAGE: vyos/vyos-build@sha256:482461a415e2fa05b5b1753bfa5490f6fd349585b88be6c23314867b770bb1a0
   ARCHITECTURE: amd64
   BUILD_BY: vyos-lts-build@github.com
   BUILD_TYPE: release
-  VERSION: 1.4-lts-build
+  VERSION: selflts
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Official, VyOS-published image matching the pinned LTS branch - see
-    # https://hub.docker.com/r/vyos/vyos-build/tags. Avoids rebuilding the
-    # (very heavy) build environment from Dockerfile on every run.
     container:
-      image: vyos/vyos-build:sagitta
+      image: ${{ env.VYOS_BUILD_IMAGE }}
       options: --workdir /vyos --privileged
+    outputs:
+      version_string: ${{ steps.version.outputs.value }}
     steps:
-      - name: Clone vyos-build (pinned branch)
-        run: git clone -b $VYOS_BRANCH --single-branch https://github.com/vyos/vyos-build
-
-      - name: Patch data/defaults.toml (upstream branch rename not fully propagated)
-        # data/defaults.toml still hardcodes vyos_branch = "sagitta" on the
-        # sagitta-public-unmaintained branch itself - the build script uses
-        # this value to check out component repos (e.g. vyos-1x), which
-        # were ALSO renamed to "-public-unmaintained". Confirmed via a real
-        # failed run: "Could not retrieve vyos-1x from branch sagitta".
-        # This is an upstream inconsistency (branch renamed, this file
-        # wasn't updated to match), not something wrong on our end.
-        working-directory: ./vyos-build
+      - name: Checkout pinned commit (not a moving branch head)
         run: |
-          sed -i "s/^vyos_branch = .*/vyos_branch = \"$VYOS_BRANCH\"/" data/defaults.toml
-          grep vyos_branch data/defaults.toml
+          git init vyos-build
+          cd vyos-build
+          git remote add origin https://github.com/vyos/vyos-build
+          git fetch --depth=1 origin "$VYOS_SOURCE_SHA"
+          git checkout --detach "$VYOS_SOURCE_SHA"
+
+      - name: Compute version string
+        id: version
+        run: echo "value=${VERSION}-$(date +%Y%m%d%H%M)-${VYOS_SOURCE_SHA:0:8}" >> "$GITHUB_OUTPUT"
 
       - name: Build ISO
         working-directory: ./vyos-build
@@ -58,7 +56,7 @@ jobs:
             --architecture $ARCHITECTURE \
             --build-by "$BUILD_BY" \
             --build-type $BUILD_TYPE \
-            --version $VERSION-$(date +%Y%m%d%H%M)
+            --version "${{ steps.version.outputs.value }}"
 
       - name: Upload ISO artifact
         uses: actions/upload-artifact@v4
@@ -74,7 +72,7 @@ jobs:
       - name: Check KVM availability
         run: |
           if [ ! -e /dev/kvm ]; then
-            echo "::error::/dev/kvm not present - this job needs a KVM-capable runner. GitHub-hosted ubuntu-latest has this by default; a self-hosted runner needs nested virtualization enabled explicitly."
+            echo "::error::/dev/kvm not present - this job needs a KVM-capable runner. GitHub-hosted ubuntu-latest has this by default."
             exit 1
           fi
           ls -la /dev/kvm
@@ -85,8 +83,13 @@ jobs:
           name: vyos-iso
           path: iso
 
-      - name: Clone vyos-build for its own official test scripts
-        run: git clone -b $VYOS_BRANCH --single-branch --depth 1 https://github.com/vyos/vyos-build vyos-build-scripts
+      - name: Checkout same pinned commit for its official test scripts
+        run: |
+          git init vyos-build-scripts
+          cd vyos-build-scripts
+          git remote add origin https://github.com/vyos/vyos-build
+          git fetch --depth=1 origin "$VYOS_SOURCE_SHA"
+          git checkout --detach "$VYOS_SOURCE_SHA"
 
       - name: Install QEMU + pexpect
         run: |
@@ -101,9 +104,10 @@ jobs:
   candidate-config-test:
     needs: build
     runs-on: ubuntu-latest
-    # Experimental - see README.md "Pipeline" section. Doesn't block the
-    # rest of the pipeline while this is still being proven out.
-    continue-on-error: true
+    # Production gate, not advisory - if this fails, the release does not
+    # happen (see the "release" job's "needs:"). Previously had
+    # continue-on-error: true while the script was unproven; removed now
+    # that it's meant to actually gate releases.
     steps:
       - name: Check KVM availability
         run: |
@@ -129,3 +133,48 @@ jobs:
         run: |
           iso=$(find iso -name '*.iso' | head -n1)
           sudo python3 scripts/test-candidate-config.py "$iso" config/candidate.txt
+
+  release:
+    needs: [build, smoketest, candidate-config-test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download ISO artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vyos-iso
+          path: iso
+
+      - name: Build release manifest and checksums
+        run: |
+          iso=$(find iso -name '*.iso' | head -n1)
+          sha256sum "$iso" > SHA256SUMS
+          cat > manifest.json <<EOF
+          {
+            "release": "${{ needs.build.outputs.version_string }}",
+            "vyos_source_repo": "https://github.com/vyos/vyos-build",
+            "vyos_source_commit": "$VYOS_SOURCE_SHA",
+            "build_image": "$VYOS_BUILD_IMAGE",
+            "github_run_id": "${{ github.run_id }}",
+            "github_repo_commit": "${{ github.sha }}",
+            "tested": {
+              "official_smoketest": true,
+              "candidate_config": true
+            }
+          }
+          EOF
+          cat manifest.json
+
+      - name: Create GitHub Release (immutable, replaces the 14-day artifact as the durable output)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          iso=$(find iso -name '*.iso' | head -n1)
+          tag="${{ needs.build.outputs.version_string }}"
+          gh release create "$tag" \
+            --title "$tag" \
+            --notes "Built from vyos/vyos-build@${VYOS_SOURCE_SHA:0:8}, passed the official VyOS smoketest suite and the candidate configuration test. See manifest.json for full provenance." \
+            "$iso" SHA256SUMS manifest.json

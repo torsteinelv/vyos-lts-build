@@ -1,82 +1,121 @@
 # vyos-lts-build
 
-Build a free VyOS LTS ISO from source, pin the version in Git, and verify it
-in CI before you'd ever consider deploying it — instead of relying on VyOS's
-paid pre-built LTS images or the unpinned rolling release.
+Build VyOS from source, pin it to a specific commit so nothing changes
+without a deliberate decision, and verify it in CI before you'd ever
+consider deploying it.
 
-## Why this exists
+## Scope
 
-VyOS's source is fully open (GPL) and its official build tooling
-([`vyos/vyos-build`](https://github.com/vyos/vyos-build)) is free to use, but
-pre-built LTS ISOs require a paid subscription. Building the LTS branch
-yourself from source is a well-established community workaround (see e.g.
-[`onedr0p/unofficial-builds-for-vyos`](https://github.com/onedr0p/unofficial-builds-for-vyos)),
-not something exotic. This repo automates that build, pins it to a specific
-version so nothing changes without a deliberate commit, and runs the
-resulting ISO through VyOS's own official install/smoketest tooling in CI
-before anything is considered a candidate for real use.
+This is a pure VyOS build/test pipeline. It does **not** produce
+Proxmox-specific artifacts (no QCOW2 conversion), isn't wired to any real
+router, and isn't a general-purpose config management tool. It builds an
+ISO, tests it, and (if the tests pass) publishes it as a versioned
+release.
 
-## Status: build + smoketest pipeline only, not a deployment tool
+## Versioning strategy: pinned rolling, not frozen LTS
 
-This repo builds and tests an ISO. It does **not** deploy configuration to
-any real router, and isn't wired to any specific firewall setup. Pick up the
-built artifact and use it however you like.
+The first version of this pipeline tried to build VyOS's `sagitta`
+(1.4 LTS) branch. That didn't work, for a real reason confirmed in CI, not
+a guess: VyOS renamed the branch to `sagitta-public-unmaintained`, and its
+package repository (`dev.packages.vyos.net/repositories/sagitta`) doesn't
+resolve at all -
 
-## Pinned version
+```
+Could not resolve 'dev.packages.vyos.net'
+```
 
-- Branch: `sagitta-public-unmaintained` (VyOS 1.4 LTS)
-- Docker build image: `vyos/vyos-build:sagitta` (official, published by
-  VyOS, updated periodically — see [Docker Hub tags](https://hub.docker.com/r/vyos/vyos-build/tags);
-  kept as a legacy tag name even after the underlying git branch was renamed)
+The `-public-unmaintained` suffix isn't cosmetic - VyOS is no longer
+backporting fixes to the free/public LTS branches, and the package
+infrastructure that branch depends on to even build is gone. Rebuilding
+`sagitta-public-unmaintained` wouldn't give you a maintained LTS, just a
+frozen source snapshot that can't fetch its own dependencies.
 
-**As of 2026-09-15, VyOS has renamed the public 1.4 and 1.5 branches to
-`sagitta-public-unmaintained` / `circinus-public-unmaintained`** (verified
-via the GitHub branches API, not assumed from README text). The
-`-public-unmaintained` suffix means VyOS itself is no longer actively
-backporting fixes to the free/public branch — this is exactly the
-situation this repo's whole premise addresses: don't assume upstream is
-maintaining what you're running, build and test it yourself so you know
-its actual state.
+So instead of imitating an official LTS channel that VyOS itself isn't
+maintaining for free users, this repo:
 
-To move to a newer LTS, update `VYOS_BRANCH` in
-`.github/workflows/build-and-test.yml` deliberately — this is a manual
-decision, not something that happens on its own.
+1. Builds `rolling` (VyOS's actively-developed branch, live package
+   mirrors, gets real security fixes) pinned to a **specific commit SHA**
+   - not the branch head, which moves constantly.
+2. Runs it through the full test gate below.
+3. If everything passes, publishes it as a dated release - this repo's
+   own "qualified stable" channel, distinct from and independent of
+   VyOS's own LTS/rolling distinction.
+
+```
+vyos rolling (upstream, moves constantly)
+        │
+        │  pick a specific commit
+        ▼
+   build + test (this repo)
+        │
+        │  all gates pass
+        ▼
+  a dated release in THIS repo
+  (only this gets deployed anywhere)
+```
+
+Nothing gets rebuilt or re-tagged automatically. Moving `VYOS_SOURCE_SHA`
+forward in `.github/workflows/build-and-test.yml` is a deliberate,
+reviewed decision every time - typically prompted by a VyOS/FRR/Debian
+security advisory, not a schedule.
+
+## Pinning
+
+- `VYOS_SOURCE_SHA` - exact commit from `vyos/vyos-build`'s `rolling`
+  branch. This is what actually gets built; update it on purpose.
+- `VYOS_BUILD_IMAGE` - the build container, pinned by **digest**, not a
+  mutable tag (`vyos/vyos-build:rolling` gets overwritten regularly on
+  Docker Hub - the digest doesn't).
+
+Both live in `.github/workflows/build-and-test.yml`'s `env:` block.
 
 ## Pipeline
 
-1. **`build`** — clones `vyos/vyos-build` at the pinned branch, runs the
-   official `build-vyos-image iso` command inside the official
-   `vyos/vyos-build:sagitta` container, uploads the resulting ISO as a
-   workflow artifact.
-2. **`smoketest`** — downloads the built ISO and runs VyOS's own official
-   `scripts/check-qemu-install` against it (installs the ISO into a QEMU
-   disk image, boots it, logs in, runs VyOS's built-in smoketest/config-test
-   suites). This step needs KVM (`/dev/kvm`) on the runner — GitHub-hosted
-   `ubuntu-latest` runners have this by default; if you move this to a
-   self-hosted runner, verify with `ls /dev/kvm` first, or it'll silently
-   fall back to (much slower) software emulation.
-3. **`candidate-config-test`** — **experimental, first draft.** VyOS's own
-   `check-qemu-install` validates the *build itself* (does it boot, do
-   VyOS's own smoketests pass) but does not load an arbitrary candidate
-   configuration you supply. This job is a custom `pexpect`-driven script
-   (`scripts/test-candidate-config.py`) that boots the installed image,
-   logs in over the QEMU serial console, loads `config/candidate.txt` (a
-   plain set of VyOS `set` commands — see that file for the current
-   placeholder example), commits it, and checks the output. This part
-   hasn't been exercised against a real boot yet — expect to need a few
-   iterations against actual CI runs to get the serial-console interaction
-   right, the same way you'd debug any expect-style script.
+1. **`build`** - checks out `vyos/vyos-build` at the pinned commit
+   (`git fetch --depth=1 origin $SHA && git checkout --detach $SHA`, not
+   a branch clone), builds the ISO, uploads it as a workflow artifact.
+2. **`smoketest`** - downloads the ISO, runs VyOS's own official
+   `scripts/check-qemu-install` against it (installs into a QEMU disk
+   image, boots, logs in, runs VyOS's built-in smoketest/config-test
+   suites) at the *same pinned commit*. Needs KVM (`/dev/kvm`) - present
+   by default on GitHub-hosted `ubuntu-latest` runners.
+3. **`candidate-config-test`** - loads `config/candidate.txt` (a
+   placeholder set of VyOS `set` commands - see that file) into a live
+   boot of the built ISO via a `pexpect`-driven script
+   (`scripts/test-candidate-config.py`), commits it, and fails loudly if
+   VyOS printed any error text at any point (not just on a hang or an
+   explicit "Commit failed" - a rejected command that still returns to a
+   normal prompt is caught too). This is a **production gate**: the
+   `release` job requires it to pass.
+4. **`release`** - only runs if `build`, `smoketest`, and
+   `candidate-config-test` all succeed. Computes a SHA256 checksum,
+   writes a `manifest.json` recording the exact source commit, build
+   image digest, and CI run ID, and publishes a GitHub Release with the
+   ISO + checksum + manifest attached. This is the durable artifact -
+   don't rely on the 14-day workflow artifact for anything you actually
+   plan to use.
 
-## Requirements to actually build/test
+## What's deliberately not here (yet)
 
-- A CI runner with KVM available for the `smoketest` and
-  `candidate-config-test` jobs (see above).
-- Nothing else — no VyOS subscription, no external credentials. The `build`
-  job needs no secrets.
+- **Proxmox/QCOW2 conversion** - out of scope for this repo by design
+  (see "Scope" above). If/when needed, that belongs in a separate,
+  infrastructure-specific pipeline that consumes this repo's releases.
+- **Integration testing** (BGP peering, WireGuard tunnels, VRRP
+  failover, conntrack survival across a simulated failure) - this repo
+  tests that a single built image installs, boots, and accepts a
+  candidate config cleanly. It does not stand up a multi-router lab.
+  That's real, valuable next work, but it's a different kind of project
+  (needs actual multi-VM infrastructure, not just CI) and shouldn't be
+  bolted onto a "pure VyOS build" repo.
+- **SBOM / artifact attestation** - `manifest.json` currently records
+  provenance manually (source SHA, image digest, run ID). Signing
+  releases with GitHub's Sigstore-backed attestations
+  (`gh attestation verify`) so deployment tooling can cryptographically
+  verify an artifact came from this exact repo/workflow/commit is a
+  reasonable next step, not implemented yet.
 
-## Non-goals (for now)
+## Requirements to build/test
 
-- Not wired to any real router or firewall config.
-- Not a general-purpose config management tool — it validates one candidate
-  config file at a time, it doesn't diff/track state the way Terraform does.
-- No commercial LTS subscription used or required anywhere in this pipeline.
+- A CI runner with KVM available (`smoketest`, `candidate-config-test`).
+- Nothing else - no VyOS subscription, no external credentials for the
+  `build` job.

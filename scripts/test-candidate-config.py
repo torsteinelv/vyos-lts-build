@@ -3,11 +3,12 @@
 Boot a VyOS ISO live in QEMU, load a candidate configuration, commit it,
 and print the resulting `show configuration commands` output.
 
-FIRST DRAFT - not yet exercised against a real boot. The prompt regexes
-below are my best understanding of VyOS's actual CLI prompts, not
-confirmed against a live run. Expect to iterate against real CI logs the
-same way you'd debug any expect-style script - if it hangs or fails at a
-specific expect(), that tells you which prompt string needs adjusting.
+This is a production gate (the release job requires it to pass), not an
+advisory check - a `set` command that VyOS silently rejects but doesn't
+hang on (e.g. "Invalid command", printed then the prompt returns
+normally) must fail this script, not just be waited past. Every prompt
+match is followed by an explicit scan of the output for known VyOS error
+strings.
 
 Boots the ISO live (no install step) - enough to test whether the
 candidate config is syntactically valid and commits cleanly. VyOS's own
@@ -23,6 +24,24 @@ LOGIN_PROMPT = "vyos login:"
 PASSWORD_PROMPT = "Password:"
 OPERATIONAL_PROMPT = r"vyos@vyos:~\$"
 CONFIG_PROMPT = r"vyos@vyos#"
+
+# VyOS prints these inline and then returns to a normal prompt - a naive
+# expect(CONFIG_PROMPT) alone would treat that as success.
+ERROR_PATTERNS = [
+    "Invalid command",
+    "Configuration path",
+    "is not valid",
+    "Error:",
+    "%%",
+]
+
+
+def check_no_errors(output, context):
+    for pattern in ERROR_PATTERNS:
+        if pattern in output:
+            print(f"CANDIDATE CONFIG: error detected after {context} (matched {pattern!r})", file=sys.stderr)
+            print(output, file=sys.stderr)
+            sys.exit(1)
 
 
 def main():
@@ -49,6 +68,7 @@ def main():
 
     child.sendline("configure")
     child.expect(CONFIG_PROMPT)
+    check_no_errors(child.before, "entering configure mode")
 
     with open(args.candidate_config) as f:
         for line in f:
@@ -57,12 +77,15 @@ def main():
                 continue
             child.sendline(line)
             child.expect(CONFIG_PROMPT)
+            check_no_errors(child.before, f"command {line!r}")
 
     child.sendline("commit")
     outcome = child.expect(["commit succeeded", "Commit failed", CONFIG_PROMPT], timeout=60)
     if outcome == 1:
         print("CANDIDATE CONFIG: commit failed", file=sys.stderr)
+        print(child.before, file=sys.stderr)
         sys.exit(1)
+    check_no_errors(child.before, "commit")
 
     child.sendline("show configuration commands")
     child.expect(CONFIG_PROMPT)
@@ -70,7 +93,7 @@ def main():
 
     child.sendline("exit")
     child.close(force=True)
-    print("CANDIDATE CONFIG: committed successfully")
+    print("CANDIDATE CONFIG: committed successfully, no errors detected")
 
 
 if __name__ == "__main__":
