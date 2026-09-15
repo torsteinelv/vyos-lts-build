@@ -62,7 +62,12 @@ jobs:
         working-directory: ./vyos-build
         run: |
           sudo make clean
-          sudo ./build-vyos-image iso \
+          # "iso" isn't a build flavor - confirmed by reading the actual
+          # current build-vyos-image script: build_flavor is a positional
+          # arg that must match a file in data/build-flavors/ (only
+          # "generic" exists there, and its image_format is "iso"). The
+          # image FORMAT comes from the flavor file, not this argument.
+          sudo ./build-vyos-image generic \
             --architecture $ARCHITECTURE \
             --build-by "$BUILD_BY" \
             --build-type $BUILD_TYPE \
