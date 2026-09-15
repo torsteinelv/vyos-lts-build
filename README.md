@@ -24,13 +24,23 @@ built artifact and use it however you like.
 
 ## Pinned version
 
-- Branch: `sagitta` (VyOS 1.4 LTS)
+- Branch: `sagitta-public-unmaintained` (VyOS 1.4 LTS)
 - Docker build image: `vyos/vyos-build:sagitta` (official, published by
-  VyOS, updated periodically — see [Docker Hub tags](https://hub.docker.com/r/vyos/vyos-build/tags))
+  VyOS, updated periodically — see [Docker Hub tags](https://hub.docker.com/r/vyos/vyos-build/tags);
+  kept as a legacy tag name even after the underlying git branch was renamed)
 
-To move to a newer LTS (e.g. 1.5 `circinus` once released), update
-`VYOS_BRANCH` in `.github/workflows/build-and-test.yml` deliberately — this
-is a manual decision, not something that happens on its own.
+**As of 2026-09-15, VyOS has renamed the public 1.4 and 1.5 branches to
+`sagitta-public-unmaintained` / `circinus-public-unmaintained`** (verified
+via the GitHub branches API, not assumed from README text). The
+`-public-unmaintained` suffix means VyOS itself is no longer actively
+backporting fixes to the free/public branch — this is exactly the
+situation this repo's whole premise addresses: don't assume upstream is
+maintaining what you're running, build and test it yourself so you know
+its actual state.
+
+To move to a newer LTS, update `VYOS_BRANCH` in
+`.github/workflows/build-and-test.yml` deliberately — this is a manual
+decision, not something that happens on its own.
 
 ## Pipeline
 
