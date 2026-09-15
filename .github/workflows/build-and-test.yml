@@ -31,7 +31,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: ${{ env.VYOS_BUILD_IMAGE }}
+      # GitHub Actions doesn't allow the `env` context here (container
+      # specs are resolved before env is evaluated) - confirmed via a
+      # real 422 from the dispatch API: "Unrecognized named-value: 'env'".
+      # Has to be the literal value, kept in sync with VYOS_BUILD_IMAGE
+      # above by hand.
+      image: vyos/vyos-build@sha256:482461a415e2fa05b5b1753bfa5490f6fd349585b88be6c23314867b770bb1a0
       options: --workdir /vyos --privileged
     outputs:
       version_string: ${{ steps.version.outputs.value }}
