@@ -118,11 +118,18 @@ jobs:
 
       - name: Run VyOS's own official install/smoketest suite
         run: |
-          iso=$(find iso -name '*.iso' | head -n1)
           # --iso is a required named flag on this version, not a
           # positional arg - confirmed via the script's own real usage
           # output ("unrecognized arguments: iso/vyos-...iso").
-          sudo python3 vyos-build-scripts/scripts/check-qemu-install --iso "$iso" --silent
+          #
+          # The script also reads data/defaults.toml relative to its OWN
+          # cwd, not its own script location - confirmed via
+          # "FileNotFoundError: data/defaults.toml" when run from the
+          # repo root. Resolve the ISO to an absolute path first, then
+          # cd into vyos-build-scripts before invoking it.
+          iso=$(readlink -f "$(find iso -name '*.iso' | head -n1)")
+          cd vyos-build-scripts
+          sudo python3 scripts/check-qemu-install --iso "$iso" --silent
 
   candidate-config-test:
     needs: build
