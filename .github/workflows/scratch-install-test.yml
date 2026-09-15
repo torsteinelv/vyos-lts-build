@@ -1,0 +1,37 @@
+name: SCRATCH - observe install image prompts
+
+# Throwaway - not part of the real pipeline. Used once to verify the
+# exact 'install image' prompt sequence for a Proxmox-template build
+# script in a different repo, then deleted.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Check KVM availability
+        run: |
+          if [ ! -e /dev/kvm ]; then
+            echo "::error::/dev/kvm not present."
+            exit 1
+          fi
+
+      - name: Download a real release ISO
+        run: |
+          curl -sL -o vyos.iso "https://github.com/torsteinelv/vyos-lts-build/releases/download/selflts-202609150935-22dfa159/vyos-selflts-202609150935-22dfa159-generic-amd64.iso"
+          ls -la vyos.iso
+
+      - name: Install QEMU + pexpect
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils ovmf python3-pexpect
+
+      - name: Observe install image prompts
+        run: |
+          sudo python3 scripts/test-install-automation.py vyos.iso
