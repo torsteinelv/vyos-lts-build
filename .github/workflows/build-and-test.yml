@@ -106,10 +106,15 @@ jobs:
           git fetch --depth=1 origin "$VYOS_SOURCE_SHA"
           git checkout --detach "$VYOS_SOURCE_SHA"
 
-      - name: Install QEMU + pexpect
+      - name: Install QEMU + pexpect + tomli
+        # python3-tomli is a real, confirmed requirement - check-qemu-install
+        # failed with "ModuleNotFoundError: No module named 'tomli'" on the
+        # first real run. Matches what's in vyos-build's own Dockerfile
+        # (python3-tomli, python3-tomli-w), which we don't get here since
+        # this job installs deps on the bare runner, not inside that image.
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 qemu-utils ovmf python3-pexpect
+          sudo apt-get install -y qemu-system-x86 qemu-utils ovmf python3-pexpect python3-tomli python3-tomli-w
 
       - name: Run VyOS's own official install/smoketest suite
         run: |

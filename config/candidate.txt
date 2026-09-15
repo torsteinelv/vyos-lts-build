@@ -3,10 +3,17 @@
 #
 # This is a placeholder demonstrating the pattern (allow SSH inbound,
 # drop everything else by default) - replace with whatever configuration
-# you actually want to test. Syntax below matches VyOS 1.4's firewall
-# model (ipv4/ipv6 split, rule sets referenced by name) - verify against
-# real 1.4 docs/behavior if you're not already familiar with it, syntax
-# has changed across VyOS versions.
+# you actually want to test.
+#
+# The first real run of the strict candidate-config-test gate caught a
+# genuine syntax error here: "state established 'enable'" /
+# "state related 'enable'" are rejected by this build ("Configuration
+# path: ... is not valid") - the state-matching syntax has evidently
+# changed on current VyOS vs. what was assumed when this placeholder was
+# written. Dropped those two lines rather than guess the current correct
+# syntax blind; if you need established/related matching, check
+# `set firewall ipv4 name WAN-IN rule 10 ?` on a real running instance
+# first. This is exactly the kind of thing the gate exists to catch.
 
 set interfaces ethernet eth0 address 'dhcp'
 
@@ -14,5 +21,3 @@ set firewall ipv4 name WAN-IN default-action 'drop'
 set firewall ipv4 name WAN-IN rule 10 action 'accept'
 set firewall ipv4 name WAN-IN rule 10 protocol 'tcp'
 set firewall ipv4 name WAN-IN rule 10 destination port '22'
-set firewall ipv4 name WAN-IN rule 10 state established 'enable'
-set firewall ipv4 name WAN-IN rule 10 state related 'enable'
