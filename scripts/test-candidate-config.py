@@ -70,11 +70,13 @@ def main():
     child.expect(CONFIG_PROMPT)
     check_no_errors(child.before, "entering configure mode")
 
+    applied_commands = []
     with open(args.candidate_config) as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
+            applied_commands.append(line)
             child.sendline(line)
             child.expect(CONFIG_PROMPT)
             check_no_errors(child.before, f"command {line!r}")
@@ -89,11 +91,27 @@ def main():
 
     child.sendline("show configuration commands")
     child.expect(CONFIG_PROMPT)
-    print(child.before)
+    committed = child.before
+    print(committed)
+
+    # "commit succeeded" only means VyOS accepted the syntax and applied
+    # SOMETHING - it doesn't prove each line ended up in the committed
+    # config exactly as intended (VyOS could in principle normalize,
+    # dedupe, or silently drop a line under some edge case). Assert every
+    # applied command is actually present in the post-commit config, not
+    # just that commit didn't error.
+    missing = [cmd for cmd in applied_commands if cmd not in committed]
+    if missing:
+        print("CANDIDATE CONFIG: commit succeeded but expected line(s) missing from "
+              "'show configuration commands':", file=sys.stderr)
+        for cmd in missing:
+            print(f"  MISSING: {cmd}", file=sys.stderr)
+        sys.exit(1)
 
     child.sendline("exit")
     child.close(force=True)
-    print("CANDIDATE CONFIG: committed successfully, no errors detected")
+    print(f"CANDIDATE CONFIG: committed successfully, all {len(applied_commands)} "
+          f"command(s) verified present, no errors detected")
 
 
 if __name__ == "__main__":

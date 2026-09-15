@@ -1,9 +1,14 @@
-# Example candidate configuration - plain VyOS `set` commands, applied
-# in order via `configure` + this file's lines + `commit`.
+# Qualification configuration - a representative, non-topology-specific
+# set of VyOS `set` commands, applied in order via `configure` + this
+# file's lines + `commit`. Proves that these config trees still parse
+# and commit on the pinned build - not a functional test of every
+# feature (VyOS's own upstream smoketest suite, run separately in the
+# `smoketest` job, already covers a lot of that).
 #
-# This is a placeholder demonstrating the pattern (allow SSH inbound,
-# drop everything else by default) - replace with whatever configuration
-# you actually want to test.
+# Currently minimal (interfaces + a firewall rule) - broadening this to
+# cover more general VyOS feature areas (VLAN, NAT, WireGuard, VRRP,
+# BGP, ...) is documented as future work in README.md. Each addition
+# needs its syntax verified against a real boot first, same as this one:
 #
 # The first real run of the strict candidate-config-test gate caught a
 # genuine syntax error here: "state established 'enable'" /

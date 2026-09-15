@@ -1,8 +1,21 @@
 # vyos-lts-build
 
-Build VyOS from source, pin it to a specific commit so nothing changes
-without a deliberate decision, and verify it in CI before you'd ever
-consider deploying it.
+> **Unofficial, independent project.** Not affiliated with, endorsed by,
+> or supported by VyOS Networks or the VyOS project. This repo does not
+> provide official VyOS LTS or support of any kind - see LICENSE and
+> SECURITY.md.
+
+Build VyOS from a pinned public source commit, qualify it through an
+automated test gate, and publish it as a traceable, versioned release -
+without relying on VyOS's paid pre-built LTS images or an unpinned
+rolling release.
+
+**What this is, precisely:** given a pinned public VyOS source revision,
+produce a traceable VyOS image and prove, at a general VyOS level, that
+it installs, boots, and accepts a representative configuration cleanly.
+Whether a given image fits *your* production network (your firewall
+rules, your BGP peers, your WireGuard config) is a separate concern -
+see "Scope" below.
 
 ## Scope
 
@@ -29,6 +42,16 @@ backporting fixes to the free/public LTS branches, and the package
 infrastructure that branch depends on to even build is gone. Rebuilding
 `sagitta-public-unmaintained` wouldn't give you a maintained LTS, just a
 frozen source snapshot that can't fetch its own dependencies.
+
+**This is not bit-for-bit reproducible.** VyOS's build fetches pre-built
+`.deb` packages from `packages.vyos.net` at build time - pinning the
+source commit and the build container digest fixes the *build recipe*,
+not necessarily every byte of every dependency, since that package
+repository can change contents independently of the VyOS source commit.
+The accurate claim is "pinned and qualified," not "reproducible." Each
+release includes the SBOMs VyOS's own build already generates
+(CycloneDX + SPDX, listing every package actually installed) so you can
+at least see exactly what went into a given release after the fact.
 
 So instead of imitating an official LTS channel that VyOS itself isn't
 maintaining for free users, this repo:
@@ -79,21 +102,37 @@ Both live in `.github/workflows/build-and-test.yml`'s `env:` block.
    image, boots, logs in, runs VyOS's built-in smoketest/config-test
    suites) at the *same pinned commit*. Needs KVM (`/dev/kvm`) - present
    by default on GitHub-hosted `ubuntu-latest` runners.
-3. **`candidate-config-test`** - loads `config/candidate.txt` (a
-   placeholder set of VyOS `set` commands - see that file) into a live
-   boot of the built ISO via a `pexpect`-driven script
-   (`scripts/test-candidate-config.py`), commits it, and fails loudly if
-   VyOS printed any error text at any point (not just on a hang or an
-   explicit "Commit failed" - a rejected command that still returns to a
-   normal prompt is caught too). This is a **production gate**: the
-   `release` job requires it to pass.
+3. **`candidate-config-test`** - loads `config/qualification.txt` (a
+   representative, non-topology-specific set of VyOS `set` commands -
+   see that file) into a live boot of the built ISO via a
+   `pexpect`-driven script (`scripts/test-candidate-config.py`), commits
+   it, and fails loudly if VyOS printed any error text at any point (not
+   just on a hang or an explicit "Commit failed" - a rejected command
+   that still returns to a normal prompt is caught too), **and** verifies
+   every applied command is actually present in the post-commit
+   `show configuration commands` output - "commit succeeded" alone isn't
+   proof the config ended up as intended. This is a **production gate**:
+   the `release` job requires it to pass.
 4. **`release`** - only runs if `build`, `smoketest`, and
-   `candidate-config-test` all succeed. Computes a SHA256 checksum,
-   writes a `manifest.json` recording the exact source commit, build
-   image digest, and CI run ID, and publishes a GitHub Release with the
-   ISO + checksum + manifest attached. This is the durable artifact -
-   don't rely on the 14-day workflow artifact for anything you actually
-   plan to use.
+   `candidate-config-test` all succeed. Computes a SHA256 checksum
+   (correctly, matching the asset's actual uploaded filename - not
+   prefixed with the local `iso/` download path), writes a
+   `manifest.json` recording the exact source commit, build image
+   digest, and CI run ID, picks up the SBOM files (CycloneDX + SPDX)
+   VyOS's own build already generates, and publishes a GitHub Release
+   with the ISO + checksum + manifest + SBOMs attached, plus a signed
+   [artifact attestation](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds)
+   binding the ISO's digest to this exact repo/workflow/commit
+   (verifiable with `gh attestation verify`). This is the durable
+   artifact - don't rely on the 14-day workflow artifact for anything
+   you actually plan to use.
+
+To verify a release before using it:
+
+```bash
+sha256sum -c SHA256SUMS
+gh attestation verify vyos-<release>-generic-amd64.iso -R torsteinelv/vyos-lts-build
+```
 
 ## What's deliberately not here (yet)
 
@@ -107,12 +146,18 @@ Both live in `.github/workflows/build-and-test.yml`'s `env:` block.
   That's real, valuable next work, but it's a different kind of project
   (needs actual multi-VM infrastructure, not just CI) and shouldn't be
   bolted onto a "pure VyOS build" repo.
-- **SBOM / artifact attestation** - `manifest.json` currently records
-  provenance manually (source SHA, image digest, run ID). Signing
-  releases with GitHub's Sigstore-backed attestations
-  (`gh attestation verify`) so deployment tooling can cryptographically
-  verify an artifact came from this exact repo/workflow/commit is a
-  reasonable next step, not implemented yet.
+- **Broader qualification coverage** - `config/qualification.txt`
+  currently proves a minimal, representative slice (interfaces + a
+  firewall rule) parses and commits. Expanding it to cover more general
+  VyOS feature areas (VLAN, NAT, WireGuard, VRRP, BGP, ...) as a broader
+  but still non-topology-specific smoke set is reasonable future work -
+  each addition needs its syntax verified against a real boot first, the
+  same way the current lines were (see the git history for this file for
+  what that process looks like in practice).
+- **GitHub Immutable Releases** - a real GitHub feature (locks a
+  release's tag and assets after publishing) that would strengthen the
+  "durable artifact" claim further. Not yet researched carefully enough
+  to implement correctly - noted here rather than guessed at.
 
 ## Requirements to build/test
 

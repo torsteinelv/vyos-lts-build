@@ -1,0 +1,10 @@
+version: 2
+updates:
+  # Actions are pinned to full commit SHAs (not mutable tags) for supply-
+  # chain integrity - Dependabot is what keeps those SHAs from going
+  # stale, opening a PR with the new SHA (and the version tag as a
+  # comment) whenever an action publishes a new release.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
