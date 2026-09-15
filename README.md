@@ -132,6 +132,42 @@ sha256sum -c SHA256SUMS
 gh attestation verify vyos-<release>-generic-amd64.iso -R torsteinelv/vyos-lts-build
 ```
 
+## Repository security posture
+
+This is a public repo, which means most of GitHub's supply-chain
+security tooling (normally an Advanced Security / Enterprise feature on
+private repos) is free here. In use:
+
+- **Actions are pinned to full commit SHAs**, not mutable version tags -
+  [`.github/dependabot.yml`](.github/dependabot.yml) keeps them current
+  via automated PRs.
+- **Least-privilege workflow permissions** - `contents: read` by
+  default, each job declares only the extra scopes it actually needs
+  (the `release` job's `contents: write` / `id-token: write` /
+  `attestations: write` / `artifact-metadata: write`).
+- **Dependency Review** ([`dependency-review.yml`](.github/workflows/dependency-review.yml))
+  scans every PR's changed Actions dependencies for known
+  vulnerabilities - required to pass before merge.
+- **OpenSSF Scorecard** ([`scorecard.yml`](.github/workflows/scorecard.yml))
+  runs GitHub's own recommended supply-chain check (SHA-pinning, token
+  scopes, risky workflow patterns) on every push to `main` and weekly,
+  reporting into the repo's code scanning tab.
+- **Secret scanning + push protection** and **CodeQL** - enabled at the
+  repo level (Settings -> Code security), not tracked as files here.
+- **Build provenance + SBOM attestations** on every release ISO
+  (Sigstore-backed, see the `release` job) - `gh attestation verify`.
+- **`release` environment** - the `release` job runs through a named
+  GitHub Environment, infrastructure for adding required reviewers later
+  (a second maintainer approving before an ISO is actually published)
+  without changing the pipeline itself. No protection rules configured
+  yet - solo maintainer today, so a required-approval rule would add
+  friction without a real security benefit. Revisit if that changes.
+- **Branch/tag rulesets on `main` and release tags** - PR required to
+  merge to `main` (0 required approvals for the same solo-maintainer
+  reason above; revisit alongside the environment rule), force-push and
+  deletion blocked on both `main` and release tags, so a published
+  release's tag can't move or disappear after the fact.
+
 ## What's deliberately not here (yet)
 
 - **Broader qualification coverage** - `config/qualification.txt`

@@ -6,6 +6,12 @@ name: Build and test VyOS
 on:
   workflow_dispatch:
 
+# Default to read-only; each job that needs more (release: contents:write
+# + the attestation scopes) declares it explicitly. Least-privilege per
+# GitHub's own recommendation for Actions workflows.
+permissions:
+  contents: read
+
 env:
   # STRATEGY: pin "rolling" at a specific commit SHA rather than build the
   # frozen "sagitta-public-unmaintained" LTS branch. Confirmed via a real
@@ -178,6 +184,12 @@ jobs:
   release:
     needs: [build, smoketest, candidate-config-test]
     runs-on: ubuntu-latest
+    # Gates the release step through a named Environment - infrastructure
+    # for adding required reviewers later (a second maintainer approving
+    # before an ISO actually gets published) without changing anything
+    # else about the pipeline. No protection rules configured yet since
+    # there's only one maintainer today - see README.md.
+    environment: release
     permissions:
       contents: write
       id-token: write
