@@ -204,7 +204,7 @@ jobs:
           cd vyos-build-scripts
           sudo python3 scripts/check-qemu-install --iso "$iso" --silent
 
-      - name: Run VyOS's own official image-update test (progress on #20)
+      - name: Run VyOS's own official image-update test (#20)
         # --test-image-update is mutually exclusive with the default test
         # mode above (confirmed in the script's own source - only one
         # "primary mode" flag may be set), so this is a genuinely separate
@@ -213,10 +213,8 @@ jobs:
         # this exact pinned commit - VyOS's own maintained test, not
         # something we wrote ourselves.
         #
-        # continue-on-error for now, same reasoning candidate-config-test
-        # itself once had: this hasn't been proven to actually pass in our
-        # environment yet. Promote to a real gate once verified.
-        continue-on-error: true
+        # Passed on its first real run - promoted to a real gate (no more
+        # continue-on-error), same as candidate-config-test once was.
         run: |
           iso=$(readlink -f "$(find iso -name '*.iso' | head -n1)")
           cd vyos-build-scripts
