@@ -97,6 +97,62 @@ jobs:
             vyos-build/build/vyos-*.spdx.json
           retention-days: 14
 
+  build-qcow2-experimental:
+    # Experimental (issue #16), not part of the qualified release - a
+    # separate flavor requesting image_format = ["iso", "qcow2"], which
+    # vyos-build's own raw_image.py converts to via a real, non-
+    # interactive raw-disk-install process (mount the built ISO's
+    # squashfs, copy it onto a raw disk, install GRUB) - not our own
+    # pexpect-driven CLI installer. continue-on-error and not in
+    # "release"'s needs: a failure here must never block the actual ISO
+    # release. Rebuilds VyOS from scratch a second time (can't share the
+    # `build` job's artifacts - image_format needs to be set before that
+    # build runs) - accepted extra CI cost while this remains unproven;
+    # worth optimizing later once it's reliable.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    container:
+      image: vyos/vyos-build@sha256:482461a415e2fa05b5b1753bfa5490f6fd349585b88be6c23314867b770bb1a0
+      options: --workdir /vyos --privileged
+    steps:
+      - name: Checkout pinned commit (not a moving branch head)
+        run: |
+          git init vyos-build
+          cd vyos-build
+          git remote add origin https://github.com/vyos/vyos-build
+          git fetch --depth=1 origin "$VYOS_SOURCE_SHA"
+          git checkout --detach "$VYOS_SOURCE_SHA"
+
+      - name: Add an experimental qcow2 flavor
+        working-directory: ./vyos-build
+        run: |
+          cat > data/build-flavors/generic-cloud.toml <<'EOF'
+          # Experimental (issue #16) - generic ISO + a raw-image-derived
+          # qcow2, for cloud/KVM/Proxmox deployment without an interactive
+          # install. Not yet verified to actually boot correctly or to
+          # include cloud-init - see that issue for status.
+          image_format = ["iso", "qcow2"]
+          EOF
+          cat data/build-flavors/generic-cloud.toml
+
+      - name: Build ISO + qcow2
+        working-directory: ./vyos-build
+        run: |
+          sudo make clean
+          sudo ./build-vyos-image generic-cloud \
+            --architecture $ARCHITECTURE \
+            --build-by "$BUILD_BY" \
+            --build-type $BUILD_TYPE \
+            --version "${VERSION}-qcow2-experimental"
+
+      - name: Upload qcow2 artifact (experimental - not a release asset)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vyos-qcow2-experimental
+          path: vyos-build/build/vyos-*.qcow2
+          retention-days: 7
+          if-no-files-found: warn
+
   smoketest:
     needs: build
     runs-on: ubuntu-latest
