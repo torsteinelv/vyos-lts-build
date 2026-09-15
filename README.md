@@ -1,5 +1,13 @@
 # vyos-lts-build
 
+[![Build and test VyOS](https://github.com/torsteinelv/vyos-lts-build/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/torsteinelv/vyos-lts-build/actions/workflows/build-and-test.yml)
+[![Latest release](https://img.shields.io/github/v/release/torsteinelv/vyos-lts-build)](https://github.com/torsteinelv/vyos-lts-build/releases/latest)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/torsteinelv/vyos-lts-build/badge)](https://scorecard.dev/viewer/?uri=github.com/torsteinelv/vyos-lts-build)
+
+Badges are dynamic (pulled live from GitHub/Scorecard), not hand-maintained
+text, so they can't silently go stale - the release badge always points at
+whatever actually got published, not what a README line claims was tested.
+
 > **Unofficial, independent project.** Not affiliated with, endorsed by,
 > or supported by VyOS Networks or the VyOS project. This repo does not
 > provide official VyOS LTS or support of any kind - see LICENSE and
