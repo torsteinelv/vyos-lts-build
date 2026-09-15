@@ -64,12 +64,18 @@ set interfaces wireguard wg0 private-key 'wBbGJJXYllwDcw63AFjiIR6ZlsvqvAf3eDwog6
 set interfaces wireguard wg0 peer qualification-peer public-key '6hkkfxN4VUQLu36NLZr47I7ST/FkQl2clPWr+9a6ZH8='
 set interfaces wireguard wg0 peer qualification-peer allowed-ips '169.254.0.0/16'
 
-# BGP - syntax confirmed from vyos-1x
-# smoketest/configs/bgp-small-ipv4-unicast. Just a neighbor definition -
-# doesn't need a real reachable peer to commit successfully, same
-# "proves the config tree, not full function" standard as the rest of
-# this file.
-set protocols bgp 65000 neighbor 192.0.2.10 remote-as '65010'
+# BGP - the first real run of this addition caught a genuine syntax
+# error: "protocols bgp [65000] is not valid" - the smoketest config this
+# was originally copied from (bgp-small-ipv4-unicast) uses an outdated
+# positional ASN (`bgp <asn>`); current VyOS moved the ASN to a
+# `system-as` leaf under a fixed `bgp` node instead - confirmed against
+# the actual current interface-definition
+# (interface-definitions/include/bgp/protocol-common-config.xml.i), not
+# guessed. Just a neighbor definition otherwise - doesn't need a real
+# reachable peer to commit successfully, same "proves the config tree,
+# not full function" standard as the rest of this file.
+set protocols bgp system-as '65000'
+set protocols bgp neighbor 192.0.2.10 remote-as '65010'
 
 # DHCP server, on its own dummy interface (not eth0 - that's already a
 # DHCP *client* above, and a single interface can't be both). Syntax
