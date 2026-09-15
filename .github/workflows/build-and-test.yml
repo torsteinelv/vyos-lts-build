@@ -185,9 +185,17 @@ jobs:
         # first real run. Matches what's in vyos-build's own Dockerfile
         # (python3-tomli, python3-tomli-w), which we don't get here since
         # this job installs deps on the bare runner, not inside that image.
+        #
+        # genisoimage (provides mkisofs) is a real, confirmed requirement
+        # too - --test-image-update failed with "FileNotFoundError: ...
+        # 'mkisofs'" on a later run (it builds a small nested ISO on the
+        # fly to test the upgrade path). Its first real run happened to
+        # pass without this installed - runner image state apparently
+        # isn't consistent build-to-build, so don't rely on tools being
+        # "already there" just because one run got lucky.
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 qemu-utils ovmf python3-pexpect python3-tomli python3-tomli-w
+          sudo apt-get install -y qemu-system-x86 qemu-utils ovmf python3-pexpect python3-tomli python3-tomli-w genisoimage
 
       - name: Run VyOS's own official install/smoketest suite
         run: |
