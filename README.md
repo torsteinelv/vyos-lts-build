@@ -13,17 +13,15 @@ rolling release.
 **What this is, precisely:** given a pinned public VyOS source revision,
 produce a traceable VyOS image and prove, at a general VyOS level, that
 it installs, boots, and accepts a representative configuration cleanly.
-Whether a given image fits *your* production network (your firewall
-rules, your BGP peers, your WireGuard config) is a separate concern -
-see "Scope" below.
+Whether a given image fits any particular deployment is a separate
+concern - see "Scope" below.
 
 ## Scope
 
-This is a pure VyOS build/test pipeline. It does **not** produce
-Proxmox-specific artifacts (no QCOW2 conversion), isn't wired to any real
-router, and isn't a general-purpose config management tool. It builds an
+This is a pure VyOS build/test pipeline. It isn't wired to any real
+router and isn't a general-purpose config management tool. It builds an
 ISO, tests it, and (if the tests pass) publishes it as a versioned
-release.
+release - nothing else.
 
 ## Versioning strategy: pinned rolling, not frozen LTS
 
@@ -136,16 +134,6 @@ gh attestation verify vyos-<release>-generic-amd64.iso -R torsteinelv/vyos-lts-b
 
 ## What's deliberately not here (yet)
 
-- **Proxmox/QCOW2 conversion** - out of scope for this repo by design
-  (see "Scope" above). If/when needed, that belongs in a separate,
-  infrastructure-specific pipeline that consumes this repo's releases.
-- **Integration testing** (BGP peering, WireGuard tunnels, VRRP
-  failover, conntrack survival across a simulated failure) - this repo
-  tests that a single built image installs, boots, and accepts a
-  candidate config cleanly. It does not stand up a multi-router lab.
-  That's real, valuable next work, but it's a different kind of project
-  (needs actual multi-VM infrastructure, not just CI) and shouldn't be
-  bolted onto a "pure VyOS build" repo.
 - **Broader qualification coverage** - `config/qualification.txt`
   currently proves a minimal, representative slice (interfaces + a
   firewall rule) parses and commits. Expanding it to cover more general
