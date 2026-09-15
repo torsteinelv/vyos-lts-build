@@ -51,7 +51,12 @@ jobs:
 
       - name: Compute version string
         id: version
-        run: echo "value=${VERSION}-$(date +%Y%m%d%H%M)-${VYOS_SOURCE_SHA:0:8}" >> "$GITHUB_OUTPUT"
+        # This container's default `run:` shell is sh/dash, not bash -
+        # confirmed via a real failure ("Bad substitution") on bash-only
+        # ${VAR:0:8} substring syntax. `cut` is POSIX and works in dash.
+        run: |
+          short_sha=$(echo "$VYOS_SOURCE_SHA" | cut -c1-8)
+          echo "value=${VERSION}-$(date +%Y%m%d%H%M)-${short_sha}" >> "$GITHUB_OUTPUT"
 
       - name: Build ISO
         working-directory: ./vyos-build
