@@ -154,8 +154,12 @@ private repos) is free here. In use:
   reporting into the repo's code scanning tab.
 - **Secret scanning + push protection** and **CodeQL** - enabled at the
   repo level (Settings -> Code security), not tracked as files here.
-- **Build provenance + SBOM attestations** on every release ISO
-  (Sigstore-backed, see the `release` job) - `gh attestation verify`.
+- **Build provenance attestation** on every release ISO (Sigstore-backed,
+  see the `release` job) - `gh attestation verify`. The SBOM files are
+  still checksummed release assets (`SHA256SUMS`), just not independently
+  attested themselves - `actions/attest`'s `sbom-path` has a hard 16MB
+  limit, and VyOS's generated SPDX file (every package in the full build)
+  is well over that.
 - **`release` environment** - the `release` job runs through a named
   GitHub Environment, infrastructure for adding required reviewers later
   (a second maintainer approving before an ISO is actually published)

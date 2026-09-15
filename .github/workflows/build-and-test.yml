@@ -243,11 +243,13 @@ jobs:
         with:
           subject-path: 'release/*.iso'
 
-      - name: Generate SBOM attestation for the ISO
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
-        with:
-          subject-path: 'release/*.iso'
-          sbom-path: 'release/*.spdx.json'
+      # No separate SBOM attestation - actions/attest's sbom-path input has a
+      # hard 16MB file size limit, and VyOS's own generated SPDX file (every
+      # package in the full build) is ~39MB - confirmed via a real CI failure
+      # ("Error: SBOM file not found", which is a misleading error for a size
+      # rejection, not a missing-file one). The SBOM is still a checksummed,
+      # attested-provenance-adjacent release asset (covered by SHA256SUMS),
+      # just not independently Sigstore-attested itself.
 
       - name: Create GitHub Release (durable output - don't rely on the 14-day workflow artifact)
         env:
