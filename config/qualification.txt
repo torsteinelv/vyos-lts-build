@@ -5,10 +5,12 @@
 # feature (VyOS's own upstream smoketest suite, run separately in the
 # `smoketest` job, already covers a lot of that).
 #
-# Currently minimal (interfaces + a firewall rule) - broadening this to
-# cover more general VyOS feature areas (VLAN, NAT, WireGuard, VRRP,
-# BGP, ...) is documented as future work in README.md. Each addition
-# needs its syntax verified against a real boot first, same as this one:
+# Covers interfaces, firewall, NAT, IPv6, VLAN, VRRP, WireGuard, BGP,
+# DHCP server, and DNS forwarding as of 2026-09-15 - still not every VyOS
+# feature area (OSPF, IPsec, QoS, ... remain future work, see README.md
+# and GitHub issue #19), but no longer just "minimal". Each addition's
+# syntax was verified against VyOS's own real, current smoketest source
+# (vyos-1x) before being added here, same as this one:
 #
 # The first real run of the strict candidate-config-test gate caught a
 # genuine syntax error here: "state established 'enable'" /
@@ -32,3 +34,66 @@ set firewall ipv4 name WAN-IN rule 10 destination port '22'
 set nat source rule 100 outbound-interface name 'eth0'
 set nat source rule 100 source address '192.168.1.0/24'
 set nat source rule 100 translation address 'masquerade'
+
+# IPv6 dual-stack addressing on the same interface - syntax confirmed
+# from vyos-1x smoketest/configs/bgp-small-ipv4-unicast (interfaces can
+# carry both an IPv4 and IPv6 address at once).
+set interfaces ethernet eth0 address '2001:db8::1/64'
+
+# VLAN sub-interface - syntax confirmed from vyos-1x
+# smoketest/scripts/cli/test_high-availability_vrrp.py (which uses this
+# exact vif to host a VRRP group, see below).
+set interfaces ethernet eth0 vif 77 address '100.64.77.2/24'
+
+# VRRP - syntax confirmed from vyos-1x
+# smoketest/scripts/cli/test_high-availability_vrrp.py. Note this moved
+# under `high-availability vrrp group` on current VyOS, not the old
+# top-level `vrrp` node some older docs/examples still reference -
+# checked the real current source rather than assume the node didn't
+# move.
+set high-availability vrrp group VLAN77 description 'VLAN77'
+set high-availability vrrp group VLAN77 interface 'eth0.77'
+set high-availability vrrp group VLAN77 address '100.64.77.1/24'
+set high-availability vrrp group VLAN77 vrid '77'
+
+# WireGuard - syntax (and the dummy keys below, already public test
+# values, not secrets) confirmed from vyos-1x
+# smoketest/scripts/cli/test_interfaces_wireguard.py.
+set interfaces wireguard wg0 address '10.200.0.1/24'
+set interfaces wireguard wg0 private-key 'wBbGJJXYllwDcw63AFjiIR6ZlsvqvAf3eDwog64Dp0Q='
+set interfaces wireguard wg0 peer qualification-peer public-key '6hkkfxN4VUQLu36NLZr47I7ST/FkQl2clPWr+9a6ZH8='
+set interfaces wireguard wg0 peer qualification-peer allowed-ips '169.254.0.0/16'
+
+# BGP - the first real run of this addition caught a genuine syntax
+# error: "protocols bgp [65000] is not valid" - the smoketest config this
+# was originally copied from (bgp-small-ipv4-unicast) uses an outdated
+# positional ASN (`bgp <asn>`); current VyOS moved the ASN to a
+# `system-as` leaf under a fixed `bgp` node instead - confirmed against
+# the actual current interface-definition
+# (interface-definitions/include/bgp/protocol-common-config.xml.i), not
+# guessed. Just a neighbor definition otherwise - doesn't need a real
+# reachable peer to commit successfully, same "proves the config tree,
+# not full function" standard as the rest of this file.
+set protocols bgp system-as '65000'
+set protocols bgp neighbor 192.0.2.10 remote-as '65010'
+
+# DHCP server, on its own dummy interface (not eth0 - that's already a
+# DHCP *client* above, and a single interface can't be both). Syntax
+# confirmed from vyos-1x smoketest/scripts/cli/test_service_dhcp-server.py
+# - including a real gotcha caught in that same test: commit fails with
+# "No DHCP address range or active static-mapping set" unless at least
+# one range is configured, so the range lines are not optional here.
+set interfaces dummy dum0 address '192.168.100.1/24'
+set service dhcp-server listen-interface 'dum0'
+set service dhcp-server shared-network-name LAN subnet '192.168.100.0/24' subnet-id '1'
+set service dhcp-server shared-network-name LAN subnet '192.168.100.0/24' range 0 start '192.168.100.10'
+set service dhcp-server shared-network-name LAN subnet '192.168.100.0/24' range 0 stop '192.168.100.100'
+set service dhcp-server shared-network-name LAN subnet '192.168.100.0/24' option default-router '192.168.100.1'
+set service dhcp-server shared-network-name LAN subnet '192.168.100.0/24' option name-server '1.1.1.1'
+
+# DNS forwarding - syntax confirmed from vyos-1x
+# smoketest/scripts/cli/test_service_dns_forwarding.py. Reuses the dummy
+# interface's subnet above rather than inventing an unrelated one.
+set service dns forwarding allow-from '192.168.100.0/24'
+set service dns forwarding listen-address '192.168.100.1'
+set service dns forwarding name-server '1.1.1.1'
