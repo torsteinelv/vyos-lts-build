@@ -26,3 +26,9 @@ set firewall ipv4 name WAN-IN default-action 'drop'
 set firewall ipv4 name WAN-IN rule 10 action 'accept'
 set firewall ipv4 name WAN-IN rule 10 protocol 'tcp'
 set firewall ipv4 name WAN-IN rule 10 destination port '22'
+
+# Source NAT (masquerade) - syntax taken from VyOS's own real smoketest
+# config (vyos-1x smoketest/configs/nat-basic), not guessed.
+set nat source rule 100 outbound-interface name 'eth0'
+set nat source rule 100 source address '192.168.1.0/24'
+set nat source rule 100 translation address 'masquerade'
