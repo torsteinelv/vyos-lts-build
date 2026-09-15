@@ -7,10 +7,18 @@ on:
   workflow_dispatch:
 
 env:
-  # Pinned LTS branch. Bumping this to a new LTS (e.g. circinus/1.5 once
-  # released) is a deliberate decision - update it here on purpose, don't
-  # automate it.
-  VYOS_BRANCH: sagitta
+  # Pinned LTS branch. As of 2026-09-15, VyOS has renamed this branch to
+  # "sagitta-public-unmaintained" upstream (confirmed via the GitHub
+  # branches API) - the plain "sagitta" branch no longer exists, only the
+  # Docker Hub image tag "sagitta" is kept as a legacy alias. The
+  # "-public-unmaintained" suffix means VyOS itself is no longer actively
+  # backporting fixes to the free/public branch (paying customers get
+  # continued support elsewhere) - which is exactly why building and
+  # testing this yourself, rather than trusting an upstream that may not
+  # be maintaining it, is the point of this repo.
+  # Bumping this to a new LTS is a deliberate decision - update it here
+  # on purpose, don't automate it.
+  VYOS_BRANCH: sagitta-public-unmaintained
   ARCHITECTURE: amd64
   BUILD_BY: vyos-lts-build@github.com
   BUILD_TYPE: release
