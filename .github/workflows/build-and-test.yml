@@ -244,6 +244,130 @@ jobs:
           cd vyos-build-scripts
           sudo python3 scripts/check-qemu-install --debug --cloud-init --disk vyos.qcow2 --silent
 
+      - name: Diagnostic boot on failure - capture real console evidence
+        # The strict test above (vendor's check-qemu-install) failed with
+        # "Device 'eth0' does not exist" even though cloud-init DID run
+        # (hostname was already renamed to vyos-CLOUD-INIT by the time it
+        # checked) - meaning vyos_config_commands executed but the kernel
+        # interface named eth0 wasn't there yet/at all when the script
+        # queried it. --silent suppresses the QEMU serial console from the
+        # Actions log entirely, so there's no way to see what actually
+        # happened from outside. This step reproduces the exact same QEMU
+        # invocation and cloud-init seed (copied by hand from the vendor
+        # script - see check-qemu-install's CI_CONFIG_ARGS/get_qemu_cmd),
+        # but instead of asserting on eth0 it logs in and unconditionally
+        # dumps `ip a`, `cloud-init status --long`, and the relevant
+        # journalctl units straight to stdout so we get real evidence
+        # instead of guessing blind. Only meaningful if the step above
+        # failed - if it already passed there's nothing to diagnose.
+        if: failure()
+        continue-on-error: true
+        working-directory: vyos-build-scripts
+        run: |
+          cat > diag_boot.py <<'PYEOF'
+          #!/usr/bin/env python3
+          import os
+          import sys
+          import pexpect
+
+          CI_DATA_DIR = 'diag_ci_data'
+          CI_ISO = 'diag_ci_seed.iso'
+          os.makedirs(CI_DATA_DIR, exist_ok=True)
+
+          open(f'{CI_DATA_DIR}/meta-data', 'w').close()
+
+          with open(f'{CI_DATA_DIR}/network-config', 'w') as f:
+              f.write("""version: 2
+          ethernets:
+            eth0:
+              dhcp4: false
+              dhcp6: false
+          """)
+
+          with open(f'{CI_DATA_DIR}/user-data', 'w') as f:
+              f.write("""#cloud-config
+          vyos_config_commands:
+            - set system host-name 'vyos-CLOUD-INIT'
+            - set service ntp server 1.pool.ntp.org
+            - set service ntp server 2.pool.ntp.org
+            - delete interfaces ethernet eth0 address 'dhcp'
+            - set interfaces ethernet eth0 address '192.0.2.1/25'
+            - set interfaces ethernet eth0 address '2001:db8::1/64'
+            - set protocols static route 0.0.0.0/0 next-hop '192.0.2.126'
+            - set protocols static route6 ::/0 next-hop '2001:db8::ffff'
+          """)
+
+          if os.path.exists(CI_ISO):
+              os.unlink(CI_ISO)
+          os.system(f'mkisofs -joliet -rock -volid "cidata" -output {CI_ISO} {CI_DATA_DIR}')
+
+          macbase = '00:00:5E:00:53'
+          qemu_cmd = [
+              '/usr/bin/qemu-system-x86_64', '-name', 'VyOS-QEMU-diag',
+              '-smp', '2,sockets=1,cores=2,threads=1', '-cpu', 'host',
+              '-machine', 'pc,accel=kvm', '-m', '4G', '-nographic', '-vga', 'none',
+              '-uuid', 'f48b60b2-e6ad-49ef-9d09-4245d0585e53',
+              '-enable-kvm',
+              '-monitor', 'unix:/tmp/qemu-monitor-socket-diag,server,nowait',
+              '-netdev', 'user,id=n0,net=192.0.2.0/24,dhcpstart=192.0.2.101,dns=192.0.2.10',
+              '-device', f'virtio-net-pci,netdev=n0,mac={macbase}:00,romfile=,host_mtu=1500',
+              '-netdev', 'user,id=n1',
+              '-device', f'virtio-net-pci,netdev=n1,mac={macbase}:01,romfile=,host_mtu=1500',
+              '-netdev', 'user,id=n2',
+              '-device', f'virtio-net-pci,netdev=n2,mac={macbase}:02,romfile=,host_mtu=1500',
+              '-netdev', 'user,id=n3',
+              '-device', f'virtio-net-pci,netdev=n3,mac={macbase}:03,romfile=,host_mtu=1500',
+              '-netdev', 'user,id=n4',
+              '-device', f'e1000e,netdev=n4,mac={macbase}:04,romfile=',
+              '-netdev', 'user,id=n5',
+              '-device', f'e1000e,netdev=n5,mac={macbase}:05,romfile=',
+              '-netdev', 'user,id=n6',
+              '-device', f'vmxnet3,netdev=n6,mac={macbase}:06,romfile=',
+              '-netdev', 'user,id=n7',
+              '-device', f'vmxnet3,netdev=n7,mac={macbase}:07,romfile=',
+              '-device', 'virtio-scsi-pci,id=scsi0',
+              '-drive', f'file={CI_ISO},format=raw,if=none,media=cdrom,id=drive-cd1,readonly=on',
+              '-device', 'ahci,id=achi0',
+              '-device', 'ide-cd,bus=achi0.0,drive=drive-cd1,id=cd1,bootindex=10',
+              '-drive', 'format=qcow2,file=vyos.qcow2,if=none,media=disk,id=drive-hd1,readonly=off',
+              '-device', 'scsi-hd,bus=scsi0.0,drive=drive-hd1,id=hd1,bootindex=1',
+          ]
+
+          print('DIAG: launching', ' '.join(qemu_cmd), flush=True)
+          c = pexpect.spawn(' '.join(qemu_cmd), timeout=120, encoding='utf-8')
+          c.logfile = sys.stdout
+
+          try:
+              c.expect('[Ll]ogin:', timeout=600)
+              c.sendline('vyos')
+              c.expect('[Pp]assword:')
+              c.sendline('vyos')
+              c.expect(r'[$#]', timeout=60)
+              print('\nDIAG: logged in, running diagnostics\n', flush=True)
+
+              for cmd in [
+                  'ip a',
+                  'ip link show',
+                  'cloud-init status --long',
+                  'sudo systemctl status vyos-config-cloud-init.service --no-pager -l',
+                  'sudo journalctl -u vyos-config-cloud-init -u cloud-init-local -u cloud-init --no-pager | tail -150',
+                  'sudo systemctl list-units --failed --no-pager',
+                  'cat /etc/cloud/cloud.cfg.d/20_vyos_custom.cfg 2>&1',
+                  'cat /etc/cloud/cloud.cfg.d/20_vyos_network.cfg 2>&1',
+              ]:
+                  print(f'\nDIAG: === {cmd} ===', flush=True)
+                  c.sendline(cmd)
+                  c.expect(r'[$#]', timeout=60)
+
+              print('\nDIAG: done\n', flush=True)
+          except pexpect.exceptions.TIMEOUT:
+              print('\nDIAG: TIMEOUT waiting for expected prompt - dumping buffer\n', flush=True)
+              print(c.before, flush=True)
+          finally:
+              c.close(force=True)
+          PYEOF
+          sudo python3 diag_boot.py
+
   smoketest:
     needs: build
     runs-on: ubuntu-latest
