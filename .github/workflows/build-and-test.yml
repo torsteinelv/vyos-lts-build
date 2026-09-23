@@ -202,20 +202,26 @@ jobs:
         # terraform-infra: does cloud-init exist in this image AND does
         # VyOS's own vyos_config_commands mechanism work on first boot.
         #
-        # check-qemu-install derives its QEMU monitor unix-socket path
-        # from the disk file's own path - confirmed via a real failure
-        # ("Path must be less than 108 bytes") once the downloaded
-        # artifact's nested qcow2/vyos-...-amd64.qcow2 name landed under
-        # the runner's already-deep default work directory. Unix domain
-        # socket paths have a hard 108-byte kernel limit, unrelated to
-        # any of our own naming choices - copy to a short, fixed path
-        # first rather than relying on wherever actions/download-artifact
-        # happens to place things.
+        # check-qemu-install builds its QEMU monitor unix-socket path by
+        # plain string concatenation - literally
+        # f"/tmp/qemu-monitor-socket-{disk_img}" (confirmed by reading the
+        # script, line ~300) - not just basename+suffix. Any "/" in the
+        # --disk value therefore becomes part of the socket's directory
+        # component, which QEMU never auto-creates. A short absolute path
+        # (/tmp/vyos.qcow2) fixed the earlier "Path must be less than 108
+        # bytes" failure but immediately hit a second real one from the
+        # same root cause: "Failed to bind socket to
+        # /tmp/qemu-monitor-socket-/tmp/vyos.qcow2: No such file or
+        # directory" - the socket's own parent dir
+        # (/tmp/qemu-monitor-socket-/tmp/) doesn't exist. The only path
+        # shape that avoids this entirely is a bare filename with zero
+        # "/" characters, resolved via cwd instead - copy into
+        # vyos-build-scripts/ itself (where the script already runs from)
+        # and pass just the filename.
         run: |
-          disk=/tmp/vyos.qcow2
-          cp "$(find qcow2 -name '*.qcow2' | head -n1)" "$disk"
+          cp "$(find qcow2 -name '*.qcow2' | head -n1)" vyos-build-scripts/vyos.qcow2
           cd vyos-build-scripts
-          sudo python3 scripts/check-qemu-install --debug --cloud-init --disk "$disk" --silent
+          sudo python3 scripts/check-qemu-install --debug --cloud-init --disk vyos.qcow2 --silent
 
   smoketest:
     needs: build
@@ -253,9 +259,14 @@ jobs:
         # requirement - the --test-image-update step below failed with
         # "FileNotFoundError: [Errno 2] No such file or directory:
         # 'mkisofs'" on a real run building its own nested-ISO payload.
+        # socat - after fixing mkisofs, the same step got further and hit
+        # a second real, confirmed gap ("sh: 1: socat: not found" right
+        # before "add system image reported an error"); check-qemu-install
+        # uses socat itself to talk to QEMU's monitor unix-socket (e.g.
+        # ejecting the install CD) as part of that flow.
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 qemu-utils ovmf python3-pexpect python3-tomli python3-tomli-w genisoimage
+          sudo apt-get install -y qemu-system-x86 qemu-utils ovmf python3-pexpect python3-tomli python3-tomli-w genisoimage socat
 
       - name: Run VyOS's own official install/smoketest suite
         run: |
