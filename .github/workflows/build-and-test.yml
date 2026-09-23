@@ -129,11 +129,32 @@ jobs:
           cat > data/build-flavors/generic-cloud.toml <<'EOF'
           # Experimental (issue #16) - generic ISO + a raw-image-derived
           # qcow2, for cloud/KVM/Proxmox deployment without an interactive
-          # install. Not yet verified to actually boot correctly or to
-          # include cloud-init - see that issue for status.
+          # install.
           image_format = ["iso", "qcow2"]
           EOF
           cat data/build-flavors/generic-cloud.toml
+
+          # cloud-init is NOT installed by either of vyos-build's own base
+          # package lists (data/live-build-config/package-lists/vyos-base
+          # .list.chroot, vyos-utils.list.chroot - confirmed by reading
+          # both directly, neither mentions it) - the flavor toml only
+          # controls image FORMAT, not packages. Confirmed empirically too:
+          # a real --cloud-init test run against a qcow2 built without this
+          # file booted to the plain "vyos@vyos:~$" prompt, not the
+          # cloud-init-set "vyos@vyos-CLOUD-INIT:~$" one, and the console
+          # log had zero "cloud-init" lines anywhere - it genuinely never
+          # ran. Same live-build package-list mechanism as the base lists,
+          # just our own file requesting the packages this flavor actually
+          # needs. cloud-guest-utils (growpart) is a real, documented
+          # cloud-init dependency on VyOS - see vyos/vyos-build PR #131 -
+          # needed to grow the disk to whatever size the deployed VM
+          # actually has, not just what raw_image.py's conversion left it
+          # at.
+          cat > data/live-build-config/package-lists/cloud-init.list.chroot <<'EOF'
+          cloud-init
+          cloud-guest-utils
+          EOF
+          cat data/live-build-config/package-lists/cloud-init.list.chroot
 
       - name: Build ISO + qcow2
         working-directory: ./vyos-build
