@@ -201,8 +201,19 @@ jobs:
         # exactly what we need to know before wiring this into
         # terraform-infra: does cloud-init exist in this image AND does
         # VyOS's own vyos_config_commands mechanism work on first boot.
+        #
+        # check-qemu-install derives its QEMU monitor unix-socket path
+        # from the disk file's own path - confirmed via a real failure
+        # ("Path must be less than 108 bytes") once the downloaded
+        # artifact's nested qcow2/vyos-...-amd64.qcow2 name landed under
+        # the runner's already-deep default work directory. Unix domain
+        # socket paths have a hard 108-byte kernel limit, unrelated to
+        # any of our own naming choices - copy to a short, fixed path
+        # first rather than relying on wherever actions/download-artifact
+        # happens to place things.
         run: |
-          disk=$(readlink -f "$(find qcow2 -name '*.qcow2' | head -n1)")
+          disk=/tmp/vyos.qcow2
+          cp "$(find qcow2 -name '*.qcow2' | head -n1)" "$disk"
           cd vyos-build-scripts
           sudo python3 scripts/check-qemu-install --debug --cloud-init --disk "$disk" --silent
 
@@ -238,9 +249,13 @@ jobs:
         # first real run. Matches what's in vyos-build's own Dockerfile
         # (python3-tomli, python3-tomli-w), which we don't get here since
         # this job installs deps on the bare runner, not inside that image.
+        # genisoimage (provides mkisofs) is likewise a real, confirmed
+        # requirement - the --test-image-update step below failed with
+        # "FileNotFoundError: [Errno 2] No such file or directory:
+        # 'mkisofs'" on a real run building its own nested-ISO payload.
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 qemu-utils ovmf python3-pexpect python3-tomli python3-tomli-w
+          sudo apt-get install -y qemu-system-x86 qemu-utils ovmf python3-pexpect python3-tomli python3-tomli-w genisoimage
 
       - name: Run VyOS's own official install/smoketest suite
         run: |
