@@ -239,10 +239,17 @@ jobs:
         # "/" characters, resolved via cwd instead - copy into
         # vyos-build-scripts/ itself (where the script already runs from)
         # and pass just the filename.
+        #
+        # --keep: without it, check-qemu-install's own cleanup block
+        # unconditionally removes --disk after the test (pass OR fail,
+        # confirmed by reading it - `if not args.keep: os.remove(args.disk)`
+        # runs regardless of outcome) - which silently broke the diagnostic
+        # step below (it found no vyos.qcow2 to boot at all, a completely
+        # separate failure from the one it was meant to explain).
         run: |
           cp "$(find qcow2 -name '*.qcow2' | head -n1)" vyos-build-scripts/vyos.qcow2
           cd vyos-build-scripts
-          sudo python3 scripts/check-qemu-install --debug --cloud-init --disk vyos.qcow2 --silent
+          sudo python3 scripts/check-qemu-install --debug --cloud-init --disk vyos.qcow2 --silent --keep
 
       - name: Diagnostic boot on failure - capture real console evidence
         # The strict test above (vendor's check-qemu-install) failed with
