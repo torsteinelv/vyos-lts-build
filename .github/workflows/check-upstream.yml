@@ -7,8 +7,6 @@ name: Check for new upstream commit
 # pass build + smoketest + candidate-config-test like any other PR before
 # it can be merged, since it touches build-and-test.yml.
 on:
-  schedule:
-    - cron: '0 6 * * *' # daily, 06:00 UTC
   workflow_dispatch:
 
 permissions:
